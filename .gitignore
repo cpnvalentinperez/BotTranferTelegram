@@ -1,0 +1,19 @@
+
+# Ignorar node_modules
+node_modules/
+
+# Archivos temporales del sistema
+*.log
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# Archivos temporales de desarrollo
+.env
+.env.local
+*.swp
+
+# Carpetas temporales propias
+temp/
+tmp/
