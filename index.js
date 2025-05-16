@@ -132,6 +132,31 @@ function verificarUmbral(ctx) {
   }
 }
 
+bot.command('ayuda', (ctx) => {
+  const ayuda = `
+📌 *Comandos disponibles:*
+
+📤 *Reenvío automático de documentos:*
+• El bot reenvía cualquier *PDF* o *imagen* enviada al grupo destino.
+• Intenta detectar *importes* automáticamente usando OCR.
+
+💵 *Comandos de saldo:*
+
+• */agregar <importe>* – Suma un importe manual al saldo acumulado.
+  _Ejemplo:_ \`/agregar 1234.56\`
+
+• */saldo* – Muestra el saldo acumulado actual.
+
+• */reset* – Reinicia el saldo a \`$0.00\` y borra el aviso de millón.
+
+🎉 *Aviso automático:*
+Cuando el saldo acumulado llega o supera *$1.000.000*, el bot avisa automáticamente:
+\`🎉 ¡El saldo acumulado alcanzó $1.000.000!\`
+
+  `;
+  ctx.replyWithMarkdownV2(ayuda);
+});
+
 
 bot.launch();
 console.log('🤖 Bot activo...');
