@@ -95,6 +95,30 @@ function buscarImporte(text) {
   return importes;
 }
 
+bot.command('agregar', (ctx) => {
+  const partes = ctx.message.text.split(' ');
+  if (partes.length < 2) {
+    return ctx.reply('⚠️ Usá el comando así: /agregar 123.45');
+  }
+
+  const valor = parseFloat(partes[1].replace(',', '.'));
+  if (isNaN(valor)) {
+    return ctx.reply('❌ El valor ingresado no es válido.');
+  }
+
+  saldoAcumulado += valor;
+  ctx.reply(`✅ Se sumó $${valor.toFixed(2)}. Saldo acumulado: $${saldoAcumulado.toFixed(2)}`);
+});
+
+bot.command('saldo', (ctx) => {
+  ctx.reply(`💰 Saldo acumulado: $${saldoAcumulado.toFixed(2)}`);
+});
+
+bot.command('reset', (ctx) => {
+  saldoAcumulado = 0;
+  ctx.reply('🔄 Saldo reiniciado a $0.00');
+});
+
 bot.launch();
 console.log('🤖 Bot activo...');
 
