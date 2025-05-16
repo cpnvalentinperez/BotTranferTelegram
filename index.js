@@ -9,6 +9,11 @@ const GRUPO_DESTINO_ID = -4676268485;
 let saldoAcumulado = 0;
 let avisoMillonHecho = false;
 
+function formatearImporte(numero) {
+  return '$' + parseFloat(numero).toFixed(2)
+    .replace('.', ',')
+    .replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
 
 bot.on('document', async (ctx) => {
   const document = ctx.message.document;
@@ -34,7 +39,6 @@ bot.on('document', async (ctx) => {
         importes = buscarImporte(text);
       }
 
-      // NO SE ENVÍA CAPTION PARA PDF
       await ctx.telegram.sendDocument(GRUPO_DESTINO_ID, fileId);
       console.log('📄 Documento PDF reenviado sin caption');
 
@@ -43,7 +47,7 @@ bot.on('document', async (ctx) => {
       text = result.data.text;
       const importes = buscarImporte(text);
       const caption = importes.length
-        ? `💰 Importes detectados:\n${importes.map(i => `• $${i}`).join('\n')}`
+        ? `💰 Importes detectados:\n${importes.map(i => `• ${formatearImporte(i)}`).join('\n')}`
         : '❌ No se detectaron importes.';
       await ctx.reply(caption);
       await ctx.telegram.sendDocument(GRUPO_DESTINO_ID, fileId, { caption });
@@ -66,8 +70,9 @@ bot.on('photo', async (ctx) => {
     const text = result.data.text;
 
     const importes = buscarImporte(text);
+
     const caption = importes.length
-      ? `💰 Importes detectados:\n${importes.map(i => `• $${i}`).join('\n')}`
+      ? `💰 Importes detectados:\n${importes.map(i => `• ${formatearImporte(i)}`).join('\n')}`
       : '❌ No se detectaron importes.';
 
     await ctx.reply(caption);
@@ -101,7 +106,7 @@ function buscarImporte(text) {
 bot.command('agregar', (ctx) => {
   const partes = ctx.message.text.split(' ');
   if (partes.length < 2) {
-    return ctx.reply('⚠️ Usá el comando así: /agregar 123.45');
+    return ctx.reply('⚠️ Usá el comando así: /agregar 1234.56');
   }
 
   const valor = parseFloat(partes[1].replace(',', '.'));
@@ -110,25 +115,24 @@ bot.command('agregar', (ctx) => {
   }
 
   saldoAcumulado += valor;
-  ctx.reply(`✅ Se sumó $${valor.toFixed(2)}. Saldo acumulado: $${saldoAcumulado.toFixed(2)}`);
-  verificarUmbral(ctx); // <-- chequea si se llegó al millón
-
+  ctx.reply(`✅ Se sumó ${formatearImporte(valor)}. Saldo acumulado: ${formatearImporte(saldoAcumulado)}`);
+  verificarUmbral(ctx);
 });
 
 bot.command('saldo', (ctx) => {
-  ctx.reply(`💰 Saldo acumulado: $${saldoAcumulado.toFixed(2)}`);
+  ctx.reply(`💰 Saldo acumulado: ${formatearImporte(saldoAcumulado)}`);
 });
 
 bot.command('reset', (ctx) => {
   saldoAcumulado = 0;
   avisoMillonHecho = false;
-  ctx.reply('🔄 Saldo reiniciado a $0.00');
+  ctx.reply('🔄 Saldo reiniciado a $0,00');
 });
 
 function verificarUmbral(ctx) {
   if (!avisoMillonHecho && saldoAcumulado >= 1000000) {
     avisoMillonHecho = true;
-    ctx.reply('🎉 ¡El saldo acumulado alcanzó $1.000.000!');
+    ctx.reply(`🎉 ¡El saldo acumulado alcanzó ${formatearImporte(saldoAcumulado)}!`);
   }
 }
 
@@ -137,26 +141,23 @@ bot.command('ayuda', (ctx) => {
 📌 *Comandos disponibles:*
 
 📤 *Reenvío automático de documentos:*
-• El bot reenvía cualquier *PDF* o *imagen* enviada al grupo destino.
+• El bot reenvía cualquier *PDF* o *imagen* enviada al grupo destino.  
 • Intenta detectar *importes* automáticamente usando OCR.
 
 💵 *Comandos de saldo:*
 
-• */agregar <importe>* – Suma un importe manual al saldo acumulado.
+• \`/agregar <importe>\` – Suma un importe manual al saldo acumulado.  
   _Ejemplo:_ \`/agregar 1234.56\`
 
-• */saldo* – Muestra el saldo acumulado actual.
+• \`/saldo\` – Muestra el saldo acumulado actual.
 
-• */reset* – Reinicia el saldo a \`$0.00\` y borra el aviso de millón.
+• \`/reset\` – Reinicia el saldo a \`$0,00\` y borra el aviso de millón.
 
-🎉 *Aviso automático:*
-Cuando el saldo acumulado llega o supera *$1.000.000*, el bot avisa automáticamente:
-\`🎉 ¡El saldo acumulado alcanzó $1.000.000!\`
-
+🎉 *Aviso automático:*  
+Cuando el saldo acumulado llega o supera *$1.000.000,00*, el bot avisa automáticamente.
   `;
-  ctx.replyWithMarkdownV2(ayuda);
+  ctx.replyWithMarkdown(ayuda);
 });
-
 
 bot.launch();
 console.log('🤖 Bot activo...');
