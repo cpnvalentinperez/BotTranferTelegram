@@ -6,6 +6,8 @@ require('dotenv').config();
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const GRUPO_DESTINO_ID = -4676268485;
+let saldoAcumulado = 0;
+
 
 bot.on('document', async (ctx) => {
   const document = ctx.message.document;
