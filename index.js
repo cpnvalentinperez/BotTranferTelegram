@@ -7,6 +7,7 @@ require('dotenv').config();
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const GRUPO_DESTINO_ID = -4676268485;
 let saldoAcumulado = 0;
+let avisoMillonHecho = false;
 
 
 bot.on('document', async (ctx) => {
@@ -110,6 +111,8 @@ bot.command('agregar', (ctx) => {
 
   saldoAcumulado += valor;
   ctx.reply(`✅ Se sumó $${valor.toFixed(2)}. Saldo acumulado: $${saldoAcumulado.toFixed(2)}`);
+  verificarUmbral(ctx); // <-- chequea si se llegó al millón
+
 });
 
 bot.command('saldo', (ctx) => {
@@ -118,8 +121,17 @@ bot.command('saldo', (ctx) => {
 
 bot.command('reset', (ctx) => {
   saldoAcumulado = 0;
+  avisoMillonHecho = false;
   ctx.reply('🔄 Saldo reiniciado a $0.00');
 });
+
+function verificarUmbral(ctx) {
+  if (!avisoMillonHecho && saldoAcumulado >= 1000000) {
+    avisoMillonHecho = true;
+    ctx.reply('🎉 ¡El saldo acumulado alcanzó $1.000.000!');
+  }
+}
+
 
 bot.launch();
 console.log('🤖 Bot activo...');
