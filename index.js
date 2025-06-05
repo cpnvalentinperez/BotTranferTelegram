@@ -33,14 +33,14 @@ bot.on('document', async (ctx) => {
 
       const posiblesCortados = importes.filter(i => i.match(/\.\d{1}$/));
       if (importes.length === 0 || posiblesCortados.length > 0) {
-        console.log('⚠️ Aplicando OCR por posibles errores en PDF...');
+        //console.log('⚠️ Aplicando OCR por posibles errores en PDF...');
         const result = await Tesseract.recognize(buffer, 'eng');
         text = result.data.text;
         importes = buscarImporte(text);
       }
 
       await ctx.telegram.sendDocument(GRUPO_DESTINO_ID, fileId);
-      console.log('📄 Documento PDF reenviado sin caption');
+      //console.log('📄 Documento PDF reenviado sin caption');
 
     } else if (document.mime_type.startsWith('image')) {
       const result = await Tesseract.recognize(buffer, 'eng');
@@ -51,11 +51,11 @@ bot.on('document', async (ctx) => {
         : '❌ No se detectaron importes.';
       await ctx.reply(caption);
       await ctx.telegram.sendDocument(GRUPO_DESTINO_ID, fileId, { caption });
-      console.log('🖼 Imagen reenviada con análisis');
+      //console.log('🖼 Imagen reenviada con análisis');
     }
 
   } catch (error) {
-    console.error('Error al procesar y reenviar documento:', error);
+    //console.error('Error al procesar y reenviar documento:', error);
   }
 });
 
@@ -77,10 +77,10 @@ bot.on('photo', async (ctx) => {
 
     await ctx.reply(caption);
     await ctx.telegram.sendPhoto(GRUPO_DESTINO_ID, photo.file_id, { caption });
-    console.log('🖼 Imagen reenviada con análisis');
+    //console.log('🖼 Imagen reenviada con análisis');
 
   } catch (error) {
-    console.error('Error al procesar imagen:', error);
+    //console.error('Error al procesar imagen:', error);
   }
 });
 
