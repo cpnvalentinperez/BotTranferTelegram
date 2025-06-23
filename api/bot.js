@@ -1,7 +1,7 @@
 const { Telegraf } = require('telegraf');
 const axios = require('axios');
 const pdfParse = require('pdf-parse');
-const Tesseract = require('tesseract.js');
+const { createWorker } = require('tesseract.js');
 require('dotenv').config();
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
@@ -33,30 +33,38 @@ bot.on('document', async (ctx) => {
 
       const posiblesCortados = importes.filter(i => i.match(/\.\d{1}$/));
       if (importes.length === 0 || posiblesCortados.length > 0) {
-        const result = await Tesseract.recognize(
-          buffer,
-          'eng',
-          {
-            corePath: process.env.VERCEL_URL
-              ? `https://${process.env.VERCEL_URL}/tesseract-core-simd.wasm`
-              : `${process.env.LOCAL_URL || 'http://localhost:3000'}/tesseract-core-simd.wasm`
-          }
-        );
+        const worker = await createWorker({
+          workerPath: process.env.VERCEL_URL
+            ? `https://${process.env.VERCEL_URL}/tesseract.worker.min.js`
+            : 'node_modules/tesseract.js/dist/worker.min.js',
+          corePath: process.env.VERCEL_URL
+            ? `https://${process.env.VERCEL_URL}/tesseract-core-simd.wasm`
+            : 'node_modules/tesseract.js-core/tesseract-core-simd.wasm',
+        });
+        await worker.load();
+        await worker.loadLanguage('eng');
+        await worker.initialize('eng');
+        const result = await worker.recognize(buffer);
+        await worker.terminate();
         text = result.data.text;
         importes = buscarImporte(text);
       }
 
       await ctx.telegram.sendDocument(GRUPO_DESTINO_ID, fileId);
     } else if (document.mime_type.startsWith('image')) {
-      const result = await Tesseract.recognize(
-        buffer,
-        'eng',
-        {
-          corePath: process.env.VERCEL_URL
-            ? `https://${process.env.VERCEL_URL}/tesseract-core-simd.wasm`
-            : `${process.env.LOCAL_URL || 'http://localhost:3000'}/tesseract-core-simd.wasm`
-        }
-      );
+      const worker = await createWorker({
+        workerPath: process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}/tesseract.worker.min.js`
+          : 'node_modules/tesseract.js/dist/worker.min.js',
+        corePath: process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}/tesseract-core-simd.wasm`
+          : 'node_modules/tesseract.js-core/tesseract-core-simd.wasm',
+      });
+      await worker.load();
+      await worker.loadLanguage('eng');
+      await worker.initialize('eng');
+      const result = await worker.recognize(buffer);
+      await worker.terminate();
       text = result.data.text;
       const importes = buscarImporte(text);
       const caption = importes.length
@@ -77,15 +85,19 @@ bot.on('photo', async (ctx) => {
 
   try {
     const response = await axios.get(fileUrl, { responseType: 'arraybuffer' });
-    const result = await Tesseract.recognize(
-      Buffer.from(response.data),
-      'eng',
-      {
-        corePath: process.env.VERCEL_URL
-          ? `https://${process.env.VERCEL_URL}/tesseract-core-simd.wasm`
-          : `${process.env.LOCAL_URL || 'http://localhost:3000'}/tesseract-core-simd.wasm`
-      }
-    );
+    const worker = await createWorker({
+      workerPath: process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}/tesseract.worker.min.js`
+        : 'node_modules/tesseract.js/dist/worker.min.js',
+      corePath: process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}/tesseract-core-simd.wasm`
+        : 'node_modules/tesseract.js-core/tesseract-core-simd.wasm',
+    });
+    await worker.load();
+    await worker.loadLanguage('eng');
+    await worker.initialize('eng');
+    const result = await worker.recognize(Buffer.from(response.data));
+    await worker.terminate();
     const text = result.data.text;
     const importes = buscarImporte(text);
     const caption = importes.length
