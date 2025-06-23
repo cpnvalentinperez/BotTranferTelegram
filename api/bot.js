@@ -33,14 +33,30 @@ bot.on('document', async (ctx) => {
 
       const posiblesCortados = importes.filter(i => i.match(/\.\d{1}$/));
       if (importes.length === 0 || posiblesCortados.length > 0) {
-        const result = await Tesseract.recognize(buffer, 'eng');
+        const result = await Tesseract.recognize(
+          buffer,
+          'eng',
+          {
+            corePath: process.env.VERCEL_URL
+              ? `https://${process.env.VERCEL_URL}/tesseract-core-simd.wasm`
+              : `${process.env.LOCAL_URL || 'http://localhost:3000'}/tesseract-core-simd.wasm`
+          }
+        );
         text = result.data.text;
         importes = buscarImporte(text);
       }
 
       await ctx.telegram.sendDocument(GRUPO_DESTINO_ID, fileId);
     } else if (document.mime_type.startsWith('image')) {
-      const result = await Tesseract.recognize(buffer, 'eng');
+      const result = await Tesseract.recognize(
+        buffer,
+        'eng',
+        {
+          corePath: process.env.VERCEL_URL
+            ? `https://${process.env.VERCEL_URL}/tesseract-core-simd.wasm`
+            : `${process.env.LOCAL_URL || 'http://localhost:3000'}/tesseract-core-simd.wasm`
+        }
+      );
       text = result.data.text;
       const importes = buscarImporte(text);
       const caption = importes.length
@@ -61,7 +77,15 @@ bot.on('photo', async (ctx) => {
 
   try {
     const response = await axios.get(fileUrl, { responseType: 'arraybuffer' });
-    const result = await Tesseract.recognize(Buffer.from(response.data), 'eng');
+    const result = await Tesseract.recognize(
+      Buffer.from(response.data),
+      'eng',
+      {
+        corePath: process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}/tesseract-core-simd.wasm`
+          : `${process.env.LOCAL_URL || 'http://localhost:3000'}/tesseract-core-simd.wasm`
+      }
+    );
     const text = result.data.text;
     const importes = buscarImporte(text);
     const caption = importes.length
