@@ -34,8 +34,8 @@ bot.on('document', async (ctx) => {
       const posiblesCortados = importes.filter(i => i.match(/\.\d{1}$/));
       if (importes.length === 0 || posiblesCortados.length > 0) {
         const worker = await createWorker({
-         workerPath: 'https://unpkg.com/tesseract.js@2.1.5/dist/worker.min.js',
-         corePath: 'https://unpkg.com/tesseract.js-core@2.1.0/tesseract-core-simd.wasm',
+          workerPath: 'https://unpkg.com/tesseract.js@2.1.5/dist/worker.min.js',
+          corePath: 'https://unpkg.com/tesseract.js-core@2.1.0/tesseract-core-simd.wasm',
         });
         await worker.load();
         await worker.loadLanguage('eng');
@@ -49,12 +49,8 @@ bot.on('document', async (ctx) => {
       await ctx.telegram.sendDocument(GRUPO_DESTINO_ID, fileId);
     } else if (document.mime_type.startsWith('image')) {
       const worker = await createWorker({
-        workerPath: process.env.VERCEL_URL
-          ? `https://${process.env.VERCEL_URL}/tesseract.worker.min.js`
-          : 'node_modules/tesseract.js/dist/worker.min.js',
-        corePath: process.env.VERCEL_URL
-          ? `https://${process.env.VERCEL_URL}/tesseract-core-simd.wasm`
-          : 'node_modules/tesseract.js-core/tesseract-core-simd.wasm',
+        workerPath: 'https://unpkg.com/tesseract.js@2.1.5/dist/worker.min.js',
+        corePath: 'https://unpkg.com/tesseract.js-core@2.1.0/tesseract-core-simd.wasm',
       });
       await worker.load();
       await worker.loadLanguage('eng');
@@ -82,12 +78,8 @@ bot.on('photo', async (ctx) => {
   try {
     const response = await axios.get(fileUrl, { responseType: 'arraybuffer' });
     const worker = await createWorker({
-      workerPath: process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}/tesseract.worker.min.js`
-        : 'node_modules/tesseract.js/dist/worker.min.js',
-      corePath: process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}/tesseract-core-simd.wasm`
-        : 'node_modules/tesseract.js-core/tesseract-core-simd.wasm',
+      workerPath: 'https://unpkg.com/tesseract.js@2.1.5/dist/worker.min.js',
+      corePath: 'https://unpkg.com/tesseract.js-core@2.1.0/tesseract-core-simd.wasm',
     });
     await worker.load();
     await worker.loadLanguage('eng');
@@ -191,4 +183,4 @@ module.exports = async (req, res) => {
   } else {
     res.status(200).send('Bot running (webhook endpoint)');
   }
-}; 
+};
