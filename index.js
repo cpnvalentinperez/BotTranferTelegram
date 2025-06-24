@@ -1,7 +1,7 @@
 const { Telegraf } = require('telegraf');
 const axios = require('axios');
 const pdfParse = require('pdf-parse');
-const Tesseract = require('tesseract.js');
+const { createWorker } = require('tesseract.js');
 require('dotenv').config();
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
@@ -33,17 +33,30 @@ bot.on('document', async (ctx) => {
 
       const posiblesCortados = importes.filter(i => i.match(/\.\d{1}$/));
       if (importes.length === 0 || posiblesCortados.length > 0) {
-        //console.log('⚠️ Aplicando OCR por posibles errores en PDF...');
-        const result = await Tesseract.recognize(buffer, 'eng');
+        const worker = await createWorker({
+          workerPath: 'https://unpkg.com/tesseract.js@2.1.5/dist/worker.min.js',
+          corePath: 'https://unpkg.com/tesseract.js-core@2.1.0/tesseract-core-simd.wasm',
+        });
+        await worker.load();
+        await worker.loadLanguage('eng');
+        await worker.initialize('eng');
+        const result = await worker.recognize(buffer);
+        await worker.terminate();
         text = result.data.text;
         importes = buscarImporte(text);
       }
 
       await ctx.telegram.sendDocument(GRUPO_DESTINO_ID, fileId);
-      //console.log('📄 Documento PDF reenviado sin caption');
-
     } else if (document.mime_type.startsWith('image')) {
-      const result = await Tesseract.recognize(buffer, 'eng');
+      const worker = await createWorker({
+        workerPath: 'https://unpkg.com/tesseract.js@2.1.5/dist/worker.min.js',
+        corePath: 'https://unpkg.com/tesseract.js-core@2.1.0/tesseract-core-simd.wasm',
+      });
+      await worker.load();
+      await worker.loadLanguage('eng');
+      await worker.initialize('eng');
+      const result = await worker.recognize(buffer);
+      await worker.terminate();
       text = result.data.text;
       const importes = buscarImporte(text);
       const caption = importes.length
@@ -51,11 +64,9 @@ bot.on('document', async (ctx) => {
         : '❌ No se detectaron importes.';
       await ctx.reply(caption);
       await ctx.telegram.sendDocument(GRUPO_DESTINO_ID, fileId, { caption });
-      //console.log('🖼 Imagen reenviada con análisis');
     }
-
   } catch (error) {
-    //console.error('Error al procesar y reenviar documento:', error);
+    // Error handling opcional
   }
 });
 
@@ -66,21 +77,24 @@ bot.on('photo', async (ctx) => {
 
   try {
     const response = await axios.get(fileUrl, { responseType: 'arraybuffer' });
-    const result = await Tesseract.recognize(Buffer.from(response.data), 'eng');
+    const worker = await createWorker({
+      workerPath: 'https://unpkg.com/tesseract.js@2.1.5/dist/worker.min.js',
+      corePath: 'https://unpkg.com/tesseract.js-core@2.1.0/tesseract-core-simd.wasm',
+    });
+    await worker.load();
+    await worker.loadLanguage('eng');
+    await worker.initialize('eng');
+    const result = await worker.recognize(Buffer.from(response.data));
+    await worker.terminate();
     const text = result.data.text;
-
     const importes = buscarImporte(text);
-
     const caption = importes.length
       ? `💰 Importes detectados:\n${importes.map(i => `• ${formatearImporte(i)}`).join('\n')}`
       : '❌ No se detectaron importes.';
-
     await ctx.reply(caption);
     await ctx.telegram.sendPhoto(GRUPO_DESTINO_ID, photo.file_id, { caption });
-    //console.log('🖼 Imagen reenviada con análisis');
-
   } catch (error) {
-    //console.error('Error al procesar imagen:', error);
+    // Error handling opcional
   }
 });
 
@@ -108,12 +122,10 @@ bot.command('agregar', (ctx) => {
   if (partes.length < 2) {
     return ctx.reply('⚠️ Usá el comando así: /agregar 1234.56');
   }
-
   const valor = parseFloat(partes[1].replace(',', '.'));
   if (isNaN(valor)) {
     return ctx.reply('❌ El valor ingresado no es válido.');
   }
-
   saldoAcumulado += valor;
   ctx.reply(`✅ Se sumó ${formatearImporte(valor)}. Saldo acumulado: ${formatearImporte(saldoAcumulado)}`);
   verificarUmbral(ctx);
@@ -159,8 +171,16 @@ Cuando el saldo acumulado llega o supera *$1.000.000,00*, el bot avisa automáti
   ctx.replyWithMarkdown(ayuda);
 });
 
-bot.launch();
-console.log('🤖 Bot activo...');
-
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+// Handler para Vercel
+module.exports = async (req, res) => {
+  if (req.method === 'POST') {
+    try {
+      await bot.handleUpdate(req.body);
+      res.status(200).send('OK');
+    } catch (err) {
+      res.status(500).send('Error');
+    }
+  } else {
+    res.status(200).send('Bot running (webhook endpoint)');
+  }
+};
