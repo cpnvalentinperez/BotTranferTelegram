@@ -2,9 +2,10 @@
   "name": "bottranfertelegram",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "api/bot.js",
   "scripts": {
-    "start": "node index.js",
+    "dev": "vercel dev",
+    "start": "node api/bot.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -15,7 +16,7 @@
     "dotenv": "^16.5.0",
     "pdf-parse": "^1.1.1",
     "telegraf": "^4.16.3",
-    "tesseract.js": "^6.0.1",
+    "tesseract.js": "2.1.4",
     "tesseract.js-core": "^6.0.0"
   }
 }

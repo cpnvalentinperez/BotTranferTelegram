@@ -13,8 +13,10 @@ let workerOCR = null;
 async function getWorker() {
   if (!workerOCR) {
     workerOCR = await createWorker({
-      workerPath: 'https://unpkg.com/tesseract.js@2.1.5/dist/worker.min.js',
+      workerPath: 'https://unpkg.com/tesseract.js@2.1.4/dist/worker.min.js',
       corePath: 'https://unpkg.com/tesseract.js-core@2.1.0/tesseract-core-simd.wasm',
+      langPath: 'https://tessdata.projectnaptha.com/4.0.0', // opcional para evitar fallos
+      workerBlobURL: false, // 🔐 obligatorio en Vercel
     });
     await workerOCR.load();
     await workerOCR.loadLanguage('eng');
