@@ -1,17 +1,19 @@
-
 {
-  "name": "telegram-saldo-bot",
+  "name": "tu-bot",
   "version": "1.0.0",
-  "description": "Un bot de Telegram simple para gestionar un saldo.",
+  "description": "Bot de Telegram",
   "main": "index.js",
   "scripts": {
     "start": "node api/bot.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "engines": {
+    "node": ">=16.0.0"
+  },
   "dependencies": {
-    "telegraf": "^4.16.1",
-    "dotenv": "^16.4.5"
+    "axios": "^1.4.0",
+    "dotenv": "^16.0.0",
+    "pdf-parse": "^1.1.1",
+    "telegraf": "^4.16.3",
+    "tesseract.js": "^4.0.2"
   }
 }
