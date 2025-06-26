@@ -1,180 +1,161 @@
 const { Telegraf } = require('telegraf');
-const axios = require('axios');
-const pdfParse = require('pdf-parse');
-const { createWorker } = require('tesseract.js');
-require('dotenv').config();
+require('dotenv').config(); // This line loads environment variables from a .env file
 
+// Initialize the bot with your Telegram Bot Token
+// IMPORTANT: On Vercel, this BOT_TOKEN must be set as an Environment Variable in your project settings.
 const bot = new Telegraf(process.env.BOT_TOKEN);
-const GRUPO_DESTINO_ID = -4676268485;
+
+// Global variables for the accumulated balance and the million-dollar notification flag.
+// BE AWARE: These variables are VOLATILE in serverless environments like Vercel.
+// They will reset between invocations or after periods of inactivity.
+// For persistent storage, you would need an external database.
 let saldoAcumulado = 0;
 let avisoMillonHecho = false;
 
-let workerOCR = null;
-async function getWorker() {
-  if (!workerOCR) {
-    workerOCR = await createWorker({
-      workerPath: 'https://unpkg.com/tesseract.js@2.1.4/dist/worker.min.js',
-      corePath: 'https://unpkg.com/tesseract.js-core@2.1.0/tesseract-core-simd.wasm',
-      langPath: 'https://tessdata.projectnaptha.com/4.0.0', // opcional para evitar fallos
-      workerBlobURL: false, // 🔐 obligatorio en Vercel
-    });
-    await workerOCR.load();
-    await workerOCR.loadLanguage('eng');
-    await workerOCR.initialize('eng');
-  }
-  return workerOCR;
-}
-
+/**
+ * Formats a number as a monetary amount in a localized format (e.g., $1.234,56 for Argentina).
+ * @param {number} numero - The number to format.
+ * @returns {string} The formatted monetary string.
+ */
 function formatearImporte(numero) {
-  return '$' + parseFloat(numero).toFixed(2)
-    .replace('.', ',')
-    .replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  const num = parseFloat(numero);
+  if (isNaN(num)) return '$0,00';
+
+  return '$' + num.toFixed(2)
+    .replace('.', ',') // Replace decimal point with comma for Argentinian format
+    .replace(/\B(?=(\d{3})+(?!\d))/g, '.'); // Add thousands separators
 }
 
-bot.on('document', async (ctx) => {
-  const document = ctx.message.document;
-  const fileId = document.file_id;
-  try {
-    const fileInfo = await ctx.telegram.getFile(fileId);
-    const fileUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${fileInfo.file_path}`;
-    const response = await axios.get(fileUrl, { responseType: 'arraybuffer' });
-    const buffer = Buffer.from(response.data);
-    let text = '';
+// --- Bot Commands ---
 
-    if (document.mime_type === 'application/pdf') {
-      const data = await pdfParse(buffer);
-      text = data.text;
-      let importes = buscarImporte(text);
+// Handles the /start command: Welcomes the user.
+bot.command('start', (ctx) => {
+  ctx.replyWithMarkdown(`
+🤖 ¡Hola! Soy tu *Bot de Saldo para Tranfers*
 
-      const posiblesCortados = importes.filter(i => i.match(/\.\d{1}$/));
-      if (importes.length === 0 || posiblesCortados.length > 0) {
-        const worker = await getWorker();
-        const result = await worker.recognize(buffer);
-        text = result.data.text;
-        importes = buscarImporte(text);
-      }
+Podés llevar un registro de tu dinero con estos comandos:
+💰 \`/agregar <importe>\`
+📊 \`/saldo\`
+🔄 \`/reset\`
 
-      await ctx.telegram.sendDocument(GRUPO_DESTINO_ID, fileId);
-    } else if (document.mime_type.startsWith('image')) {
-      const worker = await getWorker();
-      const result = await worker.recognize(buffer);
-      text = result.data.text;
-      const importes = buscarImporte(text);
-      const caption = importes.length
-        ? `💰 Importes detectados:\n${importes.map(i => `• ${formatearImporte(i)}`).join('\n')}`
-        : '❌ No se detectaron importes.';
-      await ctx.reply(caption);
-      await ctx.telegram.sendDocument(GRUPO_DESTINO_ID, fileId, { caption });
-    }
-  } catch (error) {
-    console.error('❌ Error al procesar documento:', error.message);
-    await ctx.reply('❌ Ocurrió un error procesando el documento.');
-  }
+Usa /ayuda para ver todos los comandos disponibles.
+  `);
 });
 
-bot.on('photo', async (ctx) => {
-  const photo = ctx.message.photo.at(-1);
-  try {
-    const file = await ctx.telegram.getFile(photo.file_id);
-    const fileUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${file.file_path}`;
-    const response = await axios.get(fileUrl, { responseType: 'arraybuffer' });
-    const worker = await getWorker();
-    const result = await worker.recognize(Buffer.from(response.data));
-    const text = result.data.text;
-    const importes = buscarImporte(text);
-    const caption = importes.length
-      ? `💰 Importes detectados:\n${importes.map(i => `• ${formatearImporte(i)}`).join('\n')}`
-      : '❌ No se detectaron importes.';
-    await ctx.reply(caption);
-    await ctx.telegram.sendPhoto(GRUPO_DESTINO_ID, photo.file_id, { caption });
-  } catch (error) {
-    console.error('❌ Error al procesar imagen:', error.message);
-    await ctx.reply('❌ Ocurrió un error procesando la imagen.');
-  }
-});
-
-function buscarImporte(text) {
-  const matches = [...text.matchAll(/\$?\s?(\d{1,3}(?:[.,]\d{3})*[.,]\d{2})/g)];
-  return matches.map(m => {
-    let valor = m[1];
-    if (valor.includes('.') && valor.includes(',')) {
-      valor = valor.replace(/\./g, '').replace(',', '.');
-    } else if (valor.includes(',') && valor.includes('.')) {
-      valor = valor.replace(/,/g, '');
-    } else if (valor.includes('.') && !valor.includes(',')) {
-      const partes = valor.split('.');
-      if (partes[1]?.length === 3) valor = partes.join('');
-    }
-    return parseFloat(valor).toFixed(2);
-  });
-}
-
+// Handles the /agregar command: Adds an amount to the accumulated balance.
 bot.command('agregar', (ctx) => {
   const partes = ctx.message.text.split(' ');
   if (partes.length < 2) {
-    return ctx.reply('⚠️ Usá el comando así: /agregar 1234.56');
+    return ctx.reply('⚠️ Usá: /agregar 1234.56 o /agregar 1234,56');
   }
-  const valor = parseFloat(partes[1].replace(',', '.'));
-  if (isNaN(valor)) {
-    return ctx.reply('❌ El valor ingresado no es válido.');
+
+  // Joins parts and cleans up currency symbols/spaces, then replaces comma with dot for parseFloat
+  const valorTexto = partes.slice(1).join(' ').replace(/[$\s]/g, '');
+  let valor = parseFloat(valorTexto.replace(',', '.'));
+
+  if (isNaN(valor) || valor <= 0) {
+    return ctx.reply('⚠️ Ingresá un valor numérico válido. Ejemplo: /agregar 1234.56');
   }
+
   saldoAcumulado += valor;
-  ctx.reply(`✅ Se sumó ${formatearImporte(valor)}. Saldo acumulado: ${formatearImporte(saldoAcumulado)}`);
-  verificarUmbral(ctx);
+  ctx.reply(`✅ Sumado: ${formatearImporte(valor)}\n💰 Total: ${formatearImporte(saldoAcumulado)}`);
+
+  // Special notification when the balance exceeds one million for the first time
+  if (!avisoMillonHecho && saldoAcumulado >= 1000000) {
+    avisoMillonHecho = true;
+    // Add a small delay for the celebratory message
+    setTimeout(() => {
+      ctx.reply(`🎉🎊 ¡FELICITACIONES! 🎊🎉\n💰 ¡Tu saldo superó el millón!\n📈 Total: ${formatearImporte(saldoAcumulado)}`);
+    }, 1000);
+  }
 });
 
+// Handles the /saldo command: Displays the current accumulated balance.
 bot.command('saldo', (ctx) => {
   ctx.reply(`💰 Saldo acumulado: ${formatearImporte(saldoAcumulado)}`);
 });
 
+// Handles the /reset command: Resets the balance to zero.
 bot.command('reset', (ctx) => {
   saldoAcumulado = 0;
   avisoMillonHecho = false;
   ctx.reply('🔄 Saldo reiniciado a $0,00');
 });
 
-function verificarUmbral(ctx) {
-  if (!avisoMillonHecho && saldoAcumulado >= 1000000) {
-    avisoMillonHecho = true;
-    ctx.reply(`🎉 ¡El saldo acumulado alcanzó ${formatearImporte(saldoAcumulado)}!`);
-  }
-}
-
+// Handles the /ayuda command: Provides help information and available commands.
 bot.command('ayuda', (ctx) => {
-  const ayuda = `
-📌 *Comandos disponibles:*
+  ctx.replyWithMarkdown(`
+📌 *Bot de Saldo Personal*
 
-📤 *Reenvío automático de documentos:*
-• El bot reenvía cualquier *PDF* o *imagen* enviada al grupo destino.  
-• Intenta detectar *importes* automáticamente usando OCR.
-
-💵 *Comandos de saldo:*
-
-• \`/agregar <importe>\` – Suma un importe manual al saldo acumulado.  
-  _Ejemplo:_ \`/agregar 1234.56\`
-
-• \`/saldo\` – Muestra el saldo acumulado actual.
-
-• \`/reset\` – Reinicia el saldo a \`$0,00\` y borra el aviso de millón.
-
-🎉 *Aviso automático:*  
-Cuando el saldo acumulado llega o supera *$1.000.000,00*, el bot avisa automáticamente.
-  `;
-  ctx.replyWithMarkdown(ayuda);
+*Comandos disponibles:*
+• \`/agregar <importe>\` – Suma un importe al saldo (ej: \`/agregar 1500.50\`, \`/agregar 2.300,75\`)
+• \`/saldo\` – Muestra el saldo actual
+• \`/reset\` – Reinicia el saldo a cero
+• \`/ayuda\` – Muestra esta ayuda
+  `);
 });
 
-// Handler para Vercel
+// Handles the /test command: Checks if the bot is functioning and connected to Telegram.
+bot.command('test', async (ctx) => {
+  try {
+    const botInfo = await ctx.telegram.getMe();
+    ctx.reply(`✅ Bot funcionando correctamente!\n🤖 ${botInfo.first_name} (@${botInfo.username})`);
+  } catch (error) {
+    ctx.reply(`❌ Error: ${error.message}`);
+  }
+});
+
+// --- Global Error Handling ---
+// Catches any unhandled errors within the bot's processing.
+bot.catch((err, ctx) => {
+  console.error('❌ Error en bot:', err);
+  ctx.reply('❌ Ocurrió un error inesperado. Intentá de nuevo en unos momentos.');
+});
+
+// --- Vercel Deployment Configuration ---
+// This is the core part for Vercel. Instead of bot.launch(),
+// Vercel expects an exported function to handle incoming requests (webhooks).
 module.exports = async (req, res) => {
-  console.log('🔔 Webhook recibido:', JSON.stringify(req.body));
-  if (req.method === 'POST') {
-    try {
-      await bot.handleUpdate(req.body);
-      res.status(200).send('OK');
-    } catch (err) {
-      console.error('❌ Error en el webhook:', err.message);
-      res.status(500).send('Error');
+  try {
+    // If the request is a POST request (Telegram webhook)
+    if (req.method === 'POST') {
+      await bot.handleUpdate(req.body, res);
+    } else {
+      // For GET requests (e.g., direct browser access to the Vercel URL)
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'text/plain');
+      res.end('Telegram Bot is running. Send POST requests to this URL for webhook updates.');
     }
-  } else {
-    res.status(200).send('Bot running (webhook endpoint)');
+  } catch (err) {
+    console.error('Error handling webhook update:', err);
+    res.statusCode = 500;
+    res.end('Internal Server Error');
   }
 };
+
+// --- Local Development (Optional) ---
+// This block allows you to run the bot locally using `node index.js`
+// and listen for long-polling updates, useful for testing without Vercel deployment.
+if (process.env.NODE_ENV === 'development' && !process.env.VERCEL) {
+  console.log('🤖 Iniciando bot en modo desarrollo (long polling)...');
+  bot.launch()
+    .then(() => console.log('✅ Bot lanzado correctamente en desarrollo'))
+    .catch(err => {
+      console.error('❌ Error lanzando bot en desarrollo:', err);
+      process.exit(1); // Exit if bot fails to launch locally
+    });
+
+  // Graceful shutdown for local development
+  process.once('SIGINT', () => {
+    console.log('🛑 Cerrando bot (SIGINT)...');
+    bot.stop('SIGINT');
+  });
+  process.once('SIGTERM', () => {
+    console.log('🛑 Cerrando bot (SIGTERM)...');
+    bot.stop('SIGTERM');
+  });
+} else if (!process.env.BOT_TOKEN) {
+  // Warn if BOT_TOKEN is missing when not in local dev (e.g., in Vercel but not configured)
+  console.error('❌ BOT_TOKEN no está configurado. El bot no funcionará.');
+  // In a Vercel environment, this error will be caught by the module.exports if it happens.
+}
