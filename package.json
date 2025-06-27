@@ -4,7 +4,9 @@
   "description": "Bot de Telegram",
   "main": "index.js",
   "scripts": {
-    "start": "node api/bot.js"
+    "start": "node api/bot.js",
+    "setup-webhook": "node setup-webhook.js",
+    "dev": "NODE_ENV=development node api/bot.js"
   },
   "engines": {
     "node": ">=16.0.0"

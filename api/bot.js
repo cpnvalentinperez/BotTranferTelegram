@@ -9,6 +9,17 @@ const GRUPO_DESTINO_ID = -4676268485;
 let saldoAcumulado = 0;
 let avisoMillonHecho = false;
 
+// Función para configurar webhook
+async function setupWebhook() {
+  try {
+    const webhookUrl = process.env.WEBHOOK_URL || 'https://bot-tranfer-telegram.vercel.app/api/bot';
+    await bot.telegram.setWebhook(webhookUrl);
+    console.log('✅ Webhook configurado en:', webhookUrl);
+  } catch (error) {
+    console.error('❌ Error configurando webhook:', error);
+  }
+}
+
 function formatearImporte(numero) {
   return '$' + parseFloat(numero).toFixed(2)
     .replace('.', ',')
@@ -160,20 +171,46 @@ Cuando el saldo acumulado llega o supera *$1.000.000,00*, el bot avisa automáti
 });
 
 // Configuración para Vercel
-module.exports = (req, res) => {
+module.exports = async (req, res) => {
+  // Configurar CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  // Manejar preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   // Configurar webhook para Vercel
   if (req.method === 'POST') {
-    bot.handleUpdate(req.body);
-    res.status(200).json({ ok: true });
+    try {
+      await bot.handleUpdate(req.body);
+      res.status(200).json({ ok: true });
+    } catch (error) {
+      console.error('Error procesando webhook:', error);
+      res.status(500).json({ error: 'Error interno del servidor' });
+    }
+  } else if (req.method === 'GET') {
+    // Endpoint para verificar que el bot está funcionando
+    res.status(200).json({ 
+      message: 'Bot funcionando correctamente',
+      timestamp: new Date().toISOString()
+    });
   } else {
-    res.status(200).json({ message: 'Bot funcionando correctamente' });
+    res.status(405).json({ error: 'Método no permitido' });
   }
 };
 
-// Inicializar el bot solo si no estamos en Vercel
-if (process.env.NODE_ENV !== 'production') {
+// Inicializar el bot según el entorno
+if (process.env.NODE_ENV === 'production') {
+  // En producción, configurar webhook
+  setupWebhook();
+  console.log('🤖 Bot configurado en modo producción con webhook...');
+} else {
+  // En desarrollo, usar polling
   bot.launch();
-  console.log('🤖 Bot activo en modo desarrollo...');
+  console.log('🤖 Bot activo en modo desarrollo (polling)...');
 }
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
