@@ -73,7 +73,7 @@ function formatearImporte(numero) {
 
 //     const caption = importes.length
 //       ? `💰 Importes detectados:\n${importes.map(i => `• ${formatearImporte(i)}`).join('\n')}`
-//       : '❌ No se detectaron importes.';
+//         : '❌ No se detectaron importes.';
 
 //     await ctx.reply(caption);
 //     await ctx.telegram.sendPhoto(GRUPO_DESTINO_ID, photo.file_id, { caption });
@@ -159,8 +159,22 @@ Cuando el saldo acumulado llega o supera *$1.000.000,00*, el bot avisa automáti
   ctx.replyWithMarkdown(ayuda);
 });
 
-bot.launch();
-console.log('🤖 Bot activo...');
+// Configuración para Vercel
+module.exports = (req, res) => {
+  // Configurar webhook para Vercel
+  if (req.method === 'POST') {
+    bot.handleUpdate(req.body);
+    res.status(200).json({ ok: true });
+  } else {
+    res.status(200).json({ message: 'Bot funcionando correctamente' });
+  }
+};
+
+// Inicializar el bot solo si no estamos en Vercel
+if (process.env.NODE_ENV !== 'production') {
+  bot.launch();
+  console.log('🤖 Bot activo en modo desarrollo...');
+}
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
