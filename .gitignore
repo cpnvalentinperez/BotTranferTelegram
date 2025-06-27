@@ -17,3 +17,4 @@ Thumbs.db
 # Carpetas temporales propias
 temp/
 tmp/
+.vercel
