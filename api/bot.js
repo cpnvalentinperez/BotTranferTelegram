@@ -2,12 +2,38 @@ const { Telegraf } = require('telegraf');
 const axios = require('axios');
 const pdfParse = require('pdf-parse');
 const Tesseract = require('tesseract.js');
+const fs = require('fs').promises;
+const path = require('path');
 require('dotenv').config();
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const GRUPO_DESTINO_ID = -4676268485;
-let saldoAcumulado = 0;
-let avisoMillonHecho = false;
+
+// Archivo para guardar el estado
+const STATE_FILE = path.join('/tmp', 'bot_state.json');
+
+// Función para cargar el estado
+async function cargarEstado() {
+  try {
+    const data = await fs.readFile(STATE_FILE, 'utf8');
+    return JSON.parse(data);
+  } catch (error) {
+    // Si no existe el archivo, crear estado inicial
+    return {
+      saldoAcumulado: 0,
+      avisoMillonHecho: false
+    };
+  }
+}
+
+// Función para guardar el estado
+async function guardarEstado(estado) {
+  try {
+    await fs.writeFile(STATE_FILE, JSON.stringify(estado, null, 2));
+  } catch (error) {
+    console.error('Error guardando estado:', error);
+  }
+}
 
 // Función para configurar webhook
 async function setupWebhook() {
@@ -26,95 +52,7 @@ function formatearImporte(numero) {
     .replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 }
 
-// bot.on('document', async (ctx) => {
-//   const document = ctx.message.document;
-//   const fileId = document.file_id;
-//   const fileInfo = await ctx.telegram.getFile(fileId);
-//   const fileUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${fileInfo.file_path}`;
-
-//   try {
-//     const response = await axios.get(fileUrl, { responseType: 'arraybuffer' });
-//     const buffer = Buffer.from(response.data);
-//     let text = '';
-
-//     if (document.mime_type === 'application/pdf') {
-//       const data = await pdfParse(buffer);
-//       text = data.text;
-//       let importes = buscarImporte(text);
-
-//       const posiblesCortados = importes.filter(i => i.match(/\.\d{1}$/));
-//       if (importes.length === 0 || posiblesCortados.length > 0) {
-//         //console.log('⚠️ Aplicando OCR por posibles errores en PDF...');
-//         const result = await Tesseract.recognize(buffer, 'eng');
-//         text = result.data.text;
-//         importes = buscarImporte(text);
-//       }
-
-//       await ctx.telegram.sendDocument(GRUPO_DESTINO_ID, fileId);
-//       //console.log('📄 Documento PDF reenviado sin caption');
-
-//     } else if (document.mime_type.startsWith('image')) {
-//       const result = await Tesseract.recognize(buffer, 'eng');
-//       text = result.data.text;
-//       const importes = buscarImporte(text);
-//       const caption = importes.length
-//         ? `💰 Importes detectados:\n${importes.map(i => `• ${formatearImporte(i)}`).join('\n')}`
-//         : '❌ No se detectaron importes.';
-//       await ctx.reply(caption);
-//       await ctx.telegram.sendDocument(GRUPO_DESTINO_ID, fileId, { caption });
-//       //console.log('🖼 Imagen reenviada con análisis');
-//     }
-
-//   } catch (error) {
-//     //console.error('Error al procesar y reenviar documento:', error);
-//   }
-// });
-
-// bot.on('photo', async (ctx) => {
-//   const photo = ctx.message.photo.at(-1);
-//   const file = await ctx.telegram.getFile(photo.file_id);
-//   const fileUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${file.file_path}`;
-
-//   try {
-//     const response = await axios.get(fileUrl, { responseType: 'arraybuffer' });
-//     const result = await Tesseract.recognize(Buffer.from(response.data), 'eng');
-//     const text = result.data.text;
-
-//     const importes = buscarImporte(text);
-
-//     const caption = importes.length
-//       ? `💰 Importes detectados:\n${importes.map(i => `• ${formatearImporte(i)}`).join('\n')}`
-//         : '❌ No se detectaron importes.';
-
-//     await ctx.reply(caption);
-//     await ctx.telegram.sendPhoto(GRUPO_DESTINO_ID, photo.file_id, { caption });
-//     //console.log('🖼 Imagen reenviada con análisis');
-
-//   } catch (error) {
-//     //console.error('Error al procesar imagen:', error);
-//   }
-// });
-
-// function buscarImporte(text) {
-//   const matches = [...text.matchAll(/\$?\s?(\d{1,3}(?:[.,]\d{3})*[.,]\d{2})/g)];
-//   const importes = matches.map(m => {
-//     let valor = m[1];
-//     if (valor.includes('.') && valor.includes(',')) {
-//       valor = valor.replace(/\./g, '').replace(',', '.');
-//     } else if (valor.includes(',') && valor.includes('.')) {
-//       valor = valor.replace(/,/g, '');
-//     } else if (valor.includes('.') && !valor.includes(',')) {
-//       const partes = valor.split('.');
-//       if (partes[1] && partes[1].length === 3) {
-//         valor = partes.join('');
-//       }
-//     }
-//     return parseFloat(valor).toFixed(2);
-//   });
-//   return importes;
-// }
-
-bot.command('agregar', (ctx) => {
+bot.command('agregar', async (ctx) => {
   const partes = ctx.message.text.split(' ');
   if (partes.length < 2) {
     return ctx.reply('⚠️ Usá el comando así: /agregar 1234.56');
@@ -125,35 +63,46 @@ bot.command('agregar', (ctx) => {
     return ctx.reply('❌ El valor ingresado no es válido.');
   }
 
-  saldoAcumulado += valor;
-  ctx.reply(`✅ Se sumó ${formatearImporte(valor)}. Saldo acumulado: ${formatearImporte(saldoAcumulado)}`);
-  verificarUmbral(ctx);
+  // Cargar estado actual
+  const estado = await cargarEstado();
+  
+  // Actualizar saldo
+  estado.saldoAcumulado += valor;
+  
+  // Guardar estado
+  await guardarEstado(estado);
+  
+  ctx.reply(`✅ Se sumó ${formatearImporte(valor)}. Saldo acumulado: ${formatearImporte(estado.saldoAcumulado)}`);
+  
+  // Verificar umbral
+  await verificarUmbral(ctx, estado);
 });
 
-bot.command('saldo', (ctx) => {
-  ctx.reply(`💰 Saldo acumulado: ${formatearImporte(saldoAcumulado)}`);
+bot.command('saldo', async (ctx) => {
+  const estado = await cargarEstado();
+  ctx.reply(`💰 Saldo acumulado: ${formatearImporte(estado.saldoAcumulado)}`);
 });
 
-bot.command('reset', (ctx) => {
-  saldoAcumulado = 0;
-  avisoMillonHecho = false;
+bot.command('reset', async (ctx) => {
+  const estado = {
+    saldoAcumulado: 0,
+    avisoMillonHecho: false
+  };
+  await guardarEstado(estado);
   ctx.reply('🔄 Saldo reiniciado a $0,00');
 });
 
-function verificarUmbral(ctx) {
-  if (!avisoMillonHecho && saldoAcumulado >= 1000000) {
-    avisoMillonHecho = true;
-    ctx.reply(`🎉 ¡El saldo acumulado alcanzó ${formatearImporte(saldoAcumulado)}!`);
+async function verificarUmbral(ctx, estado) {
+  if (!estado.avisoMillonHecho && estado.saldoAcumulado >= 1000000) {
+    estado.avisoMillonHecho = true;
+    await guardarEstado(estado);
+    ctx.reply(`🎉 ¡El saldo acumulado alcanzó ${formatearImporte(estado.saldoAcumulado)}!`);
   }
 }
 
 bot.command('ayuda', (ctx) => {
   const ayuda = `
 📌 *Comandos disponibles:*
-
-📤 *Reenvío automático de documentos:*
-• El bot reenvía cualquier *PDF* o *imagen* enviada al grupo destino.  
-• Intenta detectar *importes* automáticamente usando OCR.
 
 💵 *Comandos de saldo:*
 
@@ -193,8 +142,10 @@ module.exports = async (req, res) => {
     }
   } else if (req.method === 'GET') {
     // Endpoint para verificar que el bot está funcionando
+    const estado = await cargarEstado();
     res.status(200).json({ 
       message: 'Bot funcionando correctamente',
+      saldoActual: formatearImporte(estado.saldoAcumulado),
       timestamp: new Date().toISOString()
     });
   } else {
