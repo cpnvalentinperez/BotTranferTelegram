@@ -2,38 +2,81 @@ const { Telegraf } = require('telegraf');
 const axios = require('axios');
 const pdfParse = require('pdf-parse');
 const Tesseract = require('tesseract.js');
-const fs = require('fs').promises;
-const path = require('path');
 require('dotenv').config();
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const GRUPO_DESTINO_ID = -4676268485;
 
-// Archivo para guardar el estado
-const STATE_FILE = path.join('/tmp', 'bot_state.json');
+// Canal privado para guardar estado (crea un canal privado y agrega el bot como admin)
+const STORAGE_CHAT_ID = process.env.STORAGE_CHAT_ID || '@tu_canal_privado';
 
-// Función para cargar el estado
+// Función para cargar el estado desde Telegram
 async function cargarEstado() {
   try {
-    const data = await fs.readFile(STATE_FILE, 'utf8');
-    return JSON.parse(data);
+    // Buscar el último mensaje con el estado
+    const messages = await bot.telegram.getChat(STORAGE_CHAT_ID);
+    
+    // Intentar obtener mensajes recientes
+    const updates = await bot.telegram.getUpdates({ limit: 100 });
+    
+    // Buscar el último mensaje que contenga el estado
+    const stateMessage = updates
+      .reverse()
+      .find(update => 
+        update.message && 
+        update.message.text && 
+        update.message.text.startsWith('STATE:')
+      );
+    
+    if (stateMessage) {
+      const stateJson = stateMessage.message.text.replace('STATE:', '');
+      return JSON.parse(stateJson);
+    }
+    
+    return { saldoAcumulado: 0, avisoMillonHecho: false };
   } catch (error) {
-    // Si no existe el archivo, crear estado inicial
-    return {
-      saldoAcumulado: 0,
-      avisoMillonHecho: false
-    };
+    console.error('Error cargando estado:', error);
+    return { saldoAcumulado: 0, avisoMillonHecho: false };
   }
 }
 
-// Función para guardar el estado
+// Función más simple: usar un chat privado contigo mismo
+async function cargarEstadoSimple() {
+  try {
+    // Usar el chat contigo mismo como storage
+    const chatId = process.env.ADMIN_CHAT_ID; // Tu chat ID personal
+    if (!chatId) {
+      return { saldoAcumulado: 0, avisoMillonHecho: false };
+    }
+    
+    // Enviar comando para obtener el estado actual
+    // (esto requiere que implementes un comando especial)
+    return { saldoAcumulado: 0, avisoMillonHecho: false };
+  } catch (error) {
+    return { saldoAcumulado: 0, avisoMillonHecho: false };
+  }
+}
+
+// Función para guardar estado usando memoria + notificación
 async function guardarEstado(estado) {
   try {
-    await fs.writeFile(STATE_FILE, JSON.stringify(estado, null, 2));
+    // Enviar el estado actual como mensaje privado al admin
+    const adminChatId = process.env.ADMIN_CHAT_ID;
+    if (adminChatId) {
+      await bot.telegram.sendMessage(
+        adminChatId,
+        `🔄 Estado actualizado:\n💰 Saldo: ${formatearImporte(estado.saldoAcumulado)}\n🎉 Aviso millón: ${estado.avisoMillonHecho ? 'Sí' : 'No'}`,
+        { disable_notification: true }
+      );
+    }
   } catch (error) {
     console.error('Error guardando estado:', error);
   }
 }
+
+// Variables en memoria (se pierden pero son respaldadas por mensajes)
+let saldoAcumulado = 0;
+let avisoMillonHecho = false;
 
 // Función para configurar webhook
 async function setupWebhook() {
@@ -63,40 +106,51 @@ bot.command('agregar', async (ctx) => {
     return ctx.reply('❌ El valor ingresado no es válido.');
   }
 
-  // Cargar estado actual
-  const estado = await cargarEstado();
-  
-  // Actualizar saldo
-  estado.saldoAcumulado += valor;
+  saldoAcumulado += valor;
   
   // Guardar estado
-  await guardarEstado(estado);
+  await guardarEstado({ saldoAcumulado, avisoMillonHecho });
   
-  ctx.reply(`✅ Se sumó ${formatearImporte(valor)}. Saldo acumulado: ${formatearImporte(estado.saldoAcumulado)}`);
-  
-  // Verificar umbral
-  await verificarUmbral(ctx, estado);
+  ctx.reply(`✅ Se sumó ${formatearImporte(valor)}. Saldo acumulado: ${formatearImporte(saldoAcumulado)}`);
+  verificarUmbral(ctx);
 });
 
-bot.command('saldo', async (ctx) => {
-  const estado = await cargarEstado();
-  ctx.reply(`💰 Saldo acumulado: ${formatearImporte(estado.saldoAcumulado)}`);
+bot.command('saldo', (ctx) => {
+  ctx.reply(`💰 Saldo acumulado: ${formatearImporte(saldoAcumulado)}`);
 });
 
 bot.command('reset', async (ctx) => {
-  const estado = {
-    saldoAcumulado: 0,
-    avisoMillonHecho: false
-  };
-  await guardarEstado(estado);
+  saldoAcumulado = 0;
+  avisoMillonHecho = false;
+  
+  // Guardar estado
+  await guardarEstado({ saldoAcumulado, avisoMillonHecho });
+  
   ctx.reply('🔄 Saldo reiniciado a $0,00');
 });
 
-async function verificarUmbral(ctx, estado) {
-  if (!estado.avisoMillonHecho && estado.saldoAcumulado >= 1000000) {
-    estado.avisoMillonHecho = true;
-    await guardarEstado(estado);
-    ctx.reply(`🎉 ¡El saldo acumulado alcanzó ${formatearImporte(estado.saldoAcumulado)}!`);
+// Comando para restaurar estado manualmente
+bot.command('restaurar', async (ctx) => {
+  const partes = ctx.message.text.split(' ');
+  if (partes.length < 2) {
+    return ctx.reply('⚠️ Usá: /restaurar 1234.56');
+  }
+
+  const valor = parseFloat(partes[1].replace(',', '.'));
+  if (isNaN(valor)) {
+    return ctx.reply('❌ El valor ingresado no es válido.');
+  }
+
+  saldoAcumulado = valor;
+  await guardarEstado({ saldoAcumulado, avisoMillonHecho });
+  
+  ctx.reply(`🔄 Saldo restaurado a: ${formatearImporte(saldoAcumulado)}`);
+});
+
+function verificarUmbral(ctx) {
+  if (!avisoMillonHecho && saldoAcumulado >= 1000000) {
+    avisoMillonHecho = true;
+    ctx.reply(`🎉 ¡El saldo acumulado alcanzó ${formatearImporte(saldoAcumulado)}!`);
   }
 }
 
@@ -113,8 +167,13 @@ bot.command('ayuda', (ctx) => {
 
 • \`/reset\` – Reinicia el saldo a \`$0,00\` y borra el aviso de millón.
 
+• \`/restaurar <importe>\` – Restaura el saldo a un valor específico.  
+  _Ejemplo:_ \`/restaurar 500000\`
+
 🎉 *Aviso automático:*  
 Cuando el saldo acumulado llega o supera *$1.000.000,00*, el bot avisa automáticamente.
+
+⚠️ *Nota:* El saldo se guarda como respaldo, pero podría perderse entre reinicios del servidor.
   `;
   ctx.replyWithMarkdown(ayuda);
 });
@@ -142,10 +201,9 @@ module.exports = async (req, res) => {
     }
   } else if (req.method === 'GET') {
     // Endpoint para verificar que el bot está funcionando
-    const estado = await cargarEstado();
     res.status(200).json({ 
       message: 'Bot funcionando correctamente',
-      saldoActual: formatearImporte(estado.saldoAcumulado),
+      saldoActual: formatearImporte(saldoAcumulado),
       timestamp: new Date().toISOString()
     });
   } else {
