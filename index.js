@@ -1,180 +1,170 @@
 const { Telegraf } = require('telegraf');
 const axios = require('axios');
 const pdfParse = require('pdf-parse');
-const { createWorker } = require('tesseract.js');
-require('dotenv').config();
+const Tesseract = require('tesseract.js');
+// Importar la librería de Replit DB
+const Database = require('@replit/database');
+const db = new Database(); // Inicializa la base de datos de Replit
+
+// No necesitamos 'dotenv' aquí porque Replit maneja las variables de entorno internamente
+// require('dotenv').config(); 
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
-const GRUPO_DESTINO_ID = -4676268485;
+const GRUPO_DESTINO_ID = -4676268485; // Si usas este ID, asegúrate que sea correcto.
+
+// Variables que ahora se cargarán desde Replit DB
 let saldoAcumulado = 0;
 let avisoMillonHecho = false;
 
-let workerOCR = null;
-async function getWorker() {
-  if (!workerOCR) {
-    workerOCR = await createWorker({
-      workerPath: 'https://unpkg.com/tesseract.js@2.1.4/dist/worker.min.js',
-      corePath: 'https://unpkg.com/tesseract.js-core@2.1.0/tesseract-core-simd.wasm',
-      langPath: 'https://tessdata.projectnaptha.com/4.0.0', // opcional para evitar fallos
-      workerBlobURL: false, // 🔐 obligatorio en Vercel
-    });
-    await workerOCR.load();
-    await workerOCR.loadLanguage('eng');
-    await workerOCR.initialize('eng');
-  }
-  return workerOCR;
+// --- Funciones de Persistencia con Replit DB ---
+
+// Función para cargar el estado desde Replit DB
+async function cargarEstado() {
+    try {
+        const storedSaldo = await db.get('saldoAcumulado');
+        const storedAviso = await db.get('avisoMillonHecho');
+
+        // Si hay un valor guardado, úsalo; de lo contrario, inicializa a 0/false
+        saldoAcumulado = storedSaldo !== null ? storedSaldo : 0;
+        avisoMillonHecho = storedAviso !== null ? storedAviso : false;
+
+        console.log(`Estado cargado de Replit DB: Saldo ${saldoAcumulado}, Aviso ${avisoMillonHecho}`);
+    } catch (error) {
+        console.error('❌ Error cargando estado desde Replit DB:', error);
+        // En caso de error, inicializa a los valores por defecto para que el bot pueda seguir funcionando
+        saldoAcumulado = 0;
+        avisoMillonHecho = false;
+    }
 }
+
+// Función para guardar el estado en Replit DB
+async function guardarEstado() {
+    try {
+        await db.set('saldoAcumulado', saldoAcumulado);
+        await db.set('avisoMillonHecho', avisoMillonHecho);
+        console.log('✅ Estado guardado en Replit DB.');
+
+        // Además de guardar en DB, seguir enviando un mensaje al admin como backup visual
+        const adminChatId = process.env.ADMIN_CHAT_ID;
+        if (adminChatId) {
+            const mensajeEstado = `🔄 *Estado actualizado:*\n💰 Saldo: ${formatearImporte(saldoAcumulado)}\n🎉 Aviso millón: ${avisoMillonHecho ? 'Sí' : 'No'}`;
+            await bot.telegram.sendMessage(adminChatId, mensajeEstado, { parse_mode: 'Markdown', disable_notification: true })
+                .catch(err => console.error('Error enviando mensaje de estado al admin:', err));
+        }
+    } catch (error) {
+        console.error('❌ Error guardando estado en Replit DB:', error);
+    }
+}
+
+// --- Funciones Auxiliares (sin cambios) ---
 
 function formatearImporte(numero) {
-  return '$' + parseFloat(numero).toFixed(2)
-    .replace('.', ',')
-    .replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    return '$' + parseFloat(numero).toFixed(2)
+        .replace('.', ',')
+        .replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 }
 
-bot.on('document', async (ctx) => {
-  const document = ctx.message.document;
-  const fileId = document.file_id;
-  try {
-    const fileInfo = await ctx.telegram.getFile(fileId);
-    const fileUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${fileInfo.file_path}`;
-    const response = await axios.get(fileUrl, { responseType: 'arraybuffer' });
-    const buffer = Buffer.from(response.data);
-    let text = '';
-
-    if (document.mime_type === 'application/pdf') {
-      const data = await pdfParse(buffer);
-      text = data.text;
-      let importes = buscarImporte(text);
-
-      const posiblesCortados = importes.filter(i => i.match(/\.\d{1}$/));
-      if (importes.length === 0 || posiblesCortados.length > 0) {
-        const worker = await getWorker();
-        const result = await worker.recognize(buffer);
-        text = result.data.text;
-        importes = buscarImporte(text);
-      }
-
-      await ctx.telegram.sendDocument(GRUPO_DESTINO_ID, fileId);
-    } else if (document.mime_type.startsWith('image')) {
-      const worker = await getWorker();
-      const result = await worker.recognize(buffer);
-      text = result.data.text;
-      const importes = buscarImporte(text);
-      const caption = importes.length
-        ? `💰 Importes detectados:\n${importes.map(i => `• ${formatearImporte(i)}`).join('\n')}`
-        : '❌ No se detectaron importes.';
-      await ctx.reply(caption);
-      await ctx.telegram.sendDocument(GRUPO_DESTINO_ID, fileId, { caption });
+function verificarUmbral(ctx) {
+    if (!avisoMillonHecho && saldoAcumulado >= 1000000) {
+        avisoMillonHecho = true;
+        ctx.reply(`🎉 ¡El saldo acumulado alcanzó ${formatearImporte(saldoAcumulado)}!`);
+        // Guardar el estado después de verificar el umbral (ya que avisoMillonHecho cambió)
+        guardarEstado(); 
     }
-  } catch (error) {
-    console.error('❌ Error al procesar documento:', error.message);
-    await ctx.reply('❌ Ocurrió un error procesando el documento.');
-  }
-});
-
-bot.on('photo', async (ctx) => {
-  const photo = ctx.message.photo.at(-1);
-  try {
-    const file = await ctx.telegram.getFile(photo.file_id);
-    const fileUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${file.file_path}`;
-    const response = await axios.get(fileUrl, { responseType: 'arraybuffer' });
-    const worker = await getWorker();
-    const result = await worker.recognize(Buffer.from(response.data));
-    const text = result.data.text;
-    const importes = buscarImporte(text);
-    const caption = importes.length
-      ? `💰 Importes detectados:\n${importes.map(i => `• ${formatearImporte(i)}`).join('\n')}`
-      : '❌ No se detectaron importes.';
-    await ctx.reply(caption);
-    await ctx.telegram.sendPhoto(GRUPO_DESTINO_ID, photo.file_id, { caption });
-  } catch (error) {
-    console.error('❌ Error al procesar imagen:', error.message);
-    await ctx.reply('❌ Ocurrió un error procesando la imagen.');
-  }
-});
-
-function buscarImporte(text) {
-  const matches = [...text.matchAll(/\$?\s?(\d{1,3}(?:[.,]\d{3})*[.,]\d{2})/g)];
-  return matches.map(m => {
-    let valor = m[1];
-    if (valor.includes('.') && valor.includes(',')) {
-      valor = valor.replace(/\./g, '').replace(',', '.');
-    } else if (valor.includes(',') && valor.includes('.')) {
-      valor = valor.replace(/,/g, '');
-    } else if (valor.includes('.') && !valor.includes(',')) {
-      const partes = valor.split('.');
-      if (partes[1]?.length === 3) valor = partes.join('');
-    }
-    return parseFloat(valor).toFixed(2);
-  });
 }
 
-bot.command('agregar', (ctx) => {
-  const partes = ctx.message.text.split(' ');
-  if (partes.length < 2) {
-    return ctx.reply('⚠️ Usá el comando así: /agregar 1234.56');
-  }
-  const valor = parseFloat(partes[1].replace(',', '.'));
-  if (isNaN(valor)) {
-    return ctx.reply('❌ El valor ingresado no es válido.');
-  }
-  saldoAcumulado += valor;
-  ctx.reply(`✅ Se sumó ${formatearImporte(valor)}. Saldo acumulado: ${formatearImporte(saldoAcumulado)}`);
-  verificarUmbral(ctx);
+// --- Comandos del Bot (modificados para usar guardarEstado) ---
+
+bot.command('agregar', async (ctx) => {
+    const partes = ctx.message.text.split(' ');
+    if (partes.length < 2) {
+        return ctx.reply('⚠️ Usá el comando así: /agregar 1234.56');
+    }
+
+    const valor = parseFloat(partes[1].replace(',', '.'));
+    if (isNaN(valor)) {
+        return ctx.reply('❌ El valor ingresado no es válido.');
+    }
+
+    saldoAcumulado += valor;
+    await guardarEstado(); // <<-- Guardar estado después de modificarlo
+    
+    ctx.reply(`✅ Se sumó ${formatearImporte(valor)}. Saldo acumulado: ${formatearImporte(saldoAcumulado)}`);
+    verificarUmbral(ctx);
 });
 
 bot.command('saldo', (ctx) => {
-  ctx.reply(`💰 Saldo acumulado: ${formatearImporte(saldoAcumulado)}`);
+    // El saldo ya está cargado en la variable global
+    ctx.reply(`💰 Saldo acumulado: ${formatearImporte(saldoAcumulado)}`);
 });
 
-bot.command('reset', (ctx) => {
-  saldoAcumulado = 0;
-  avisoMillonHecho = false;
-  ctx.reply('🔄 Saldo reiniciado a $0,00');
+bot.command('reset', async (ctx) => {
+    saldoAcumulado = 0;
+    avisoMillonHecho = false;
+    
+    await guardarEstado(); // <<-- Guardar estado después de modificarlo
+    
+    ctx.reply('🔄 Saldo reiniciado a $0,00');
 });
 
-function verificarUmbral(ctx) {
-  if (!avisoMillonHecho && saldoAcumulado >= 1000000) {
-    avisoMillonHecho = true;
-    ctx.reply(`🎉 ¡El saldo acumulado alcanzó ${formatearImporte(saldoAcumulado)}!`);
-  }
-}
+bot.command('restaurar', async (ctx) => {
+    const partes = ctx.message.text.split(' ');
+    if (partes.length < 2) {
+        return ctx.reply('⚠️ Usá: /restaurar 1234.56');
+    }
+
+    const valor = parseFloat(partes[1].replace(',', '.'));
+    if (isNaN(valor)) {
+        return ctx.reply('❌ El valor ingresado no es válido.');
+    }
+
+    saldoAcumulado = valor;
+    await guardarEstado(); // <<-- Guardar estado después de modificarlo
+    
+    ctx.reply(`🔄 Saldo restaurado a: ${formatearImporte(saldoAcumulado)}`);
+});
 
 bot.command('ayuda', (ctx) => {
-  const ayuda = `
+    const ayuda = `
 📌 *Comandos disponibles:*
-
-📤 *Reenvío automático de documentos:*
-• El bot reenvía cualquier *PDF* o *imagen* enviada al grupo destino.  
-• Intenta detectar *importes* automáticamente usando OCR.
 
 💵 *Comandos de saldo:*
 
-• \`/agregar <importe>\` – Suma un importe manual al saldo acumulado.  
-  _Ejemplo:_ \`/agregar 1234.56\`
+• \`/agregar <importe>\` – Suma un importe manual al saldo acumulado.  
+  _Ejemplo:_ \`/agregar 1234.56\`
 
 • \`/saldo\` – Muestra el saldo acumulado actual.
 
 • \`/reset\` – Reinicia el saldo a \`$0,00\` y borra el aviso de millón.
 
-🎉 *Aviso automático:*  
+• \`/restaurar <importe>\` – Restaura el saldo a un valor específico.  
+  _Ejemplo:_ \`/restaurar 500000\`
+
+🎉 *Aviso automático:*  
 Cuando el saldo acumulado llega o supera *$1.000.000,00*, el bot avisa automáticamente.
-  `;
-  ctx.replyWithMarkdown(ayuda);
+
+✅ *Nota:* El saldo se guarda de forma persistente en la base de datos de Replit, por lo que no se perderá entre reinicios.
+  `;
+    ctx.replyWithMarkdown(ayuda);
 });
 
-// Handler para Vercel
-module.exports = async (req, res) => {
-  console.log('🔔 Webhook recibido:', JSON.stringify(req.body));
-  if (req.method === 'POST') {
-    try {
-      await bot.handleUpdate(req.body);
-      res.status(200).send('OK');
-    } catch (err) {
-      console.error('❌ Error en el webhook:', err.message);
-      res.status(500).send('Error');
-    }
-  } else {
-    res.status(200).send('Bot running (webhook endpoint)');
-  }
-};
+// --- Configuración y Lanzamiento del Bot ---
+
+// Esta función se ejecuta al inicio para cargar el estado y luego lanzar el bot.
+async function startBot() {
+    await cargarEstado(); // Carga el estado inicial desde Replit DB
+    bot.launch(); // Inicia el bot en modo polling (escuchando mensajes)
+    console.log('🤖 Bot de Telegram activo y escuchando...');
+}
+
+// Inicia el bot
+startBot();
+
+// Manejo de señales para detener el bot limpiamente
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
+// Desactivamos la parte de configuración de webhook para Vercel
+// module.exports = async (req, res) => { /* ... */ };
+// if (process.env.NODE_ENV === 'production') { /* ... */ } else { /* ... */ }
+// Esto ya no es necesario en Replit, que usa polling por defecto en Node.js
