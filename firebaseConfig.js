@@ -1,6 +1,6 @@
 //const { createClient } = require('redis');
-const firebase = require('firebase/app');
-require('firebase/database');
+const firebase = require('firebase/compat/app');
+require('firebase/compat/database');
 
 const firebaseConfig = {
     apiKey: "AIzaSyArQaaUC9TOluhIZJs9OhhM_7rJtwlw32c",

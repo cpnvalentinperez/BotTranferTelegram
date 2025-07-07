@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "axios": "^0.27.2",
+    "dotenv": "^17.0.1",
     "firebase": "^9.17.1",
     "telegraf": "^4.9.0",
     "tesseract.js": "^2.1.1"

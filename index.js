@@ -2,6 +2,7 @@ const { Telegraf } = require('telegraf');
 const axios = require('axios');
 //const pdfParse = require('pdf-parse');
 const Tesseract = require('tesseract.js');
+require('dotenv').config();
 
 // Importar configuración de Firebase
 const { database } = require('./firebaseConfig');
